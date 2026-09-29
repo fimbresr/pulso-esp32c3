@@ -1,0 +1,204 @@
+<!doctype html>
+<html lang="es">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="theme-color" content="#101827">
+<title>Control de pulso ESP32-C3</title>
+<style>
+:root{color-scheme:dark;--bg:#101827;--panel:#192437;--line:#2d3b52;--text:#edf3fb;--muted:#a9b6c9;--accent:#5de0b5;--pulse:#f2b84b;--danger:#ff8b8b}
+*{box-sizing:border-box}
+body{margin:0;background:radial-gradient(ellipse at top,#1b2d45,var(--bg) 65%);font:16px system-ui,sans-serif;color:var(--text);min-height:100vh;display:grid;place-items:center;padding:24px}
+.wrap{width:min(100%,460px);text-align:center}
+h1{font-size:1.8rem;margin:0 0 8px}
+.sub{color:var(--muted);margin:0 0 28px}
+.panel{background:rgba(25,36,55,.96);border:1px solid var(--line);border-radius:18px;padding:28px 22px;box-shadow:0 14px 45px #0003}
+.status{display:flex;justify-content:center;align-items:center;gap:9px;color:var(--muted);font-size:.95rem;min-height:24px}
+.dot{width:10px;height:10px;border-radius:50%;background:#78859a;flex:none}
+.dot.on{background:var(--accent);box-shadow:0 0 12px var(--accent)}
+.dot.error{background:var(--danger);box-shadow:0 0 12px var(--danger)}
+.pulse{width:100%;min-height:92px;margin-top:28px;border:0;border-radius:14px;background:var(--pulse);color:#2b1d05;font:700 1.25rem system-ui;cursor:pointer}
+.pulse:disabled,.enroll:disabled{opacity:.45;cursor:not-allowed}
+.enroll{width:100%;min-height:52px;margin-top:14px;border:0;border-radius:12px;background:var(--accent);color:#10241f;font:700 1rem system-ui;cursor:pointer}
+.enroll[hidden]{display:none}
+label{display:block;margin:24px 0 8px;text-align:left;color:var(--muted);font-size:.9rem}
+input{width:100%;min-height:52px;border:1px solid var(--line);border-radius:12px;background:#101827;color:var(--text);padding:0 14px;font:1rem system-ui}
+.msg{min-height:2.8em;margin:18px 0 0;color:var(--muted);font-size:.9rem;line-height:1.45}
+.note{margin:24px 0 0;color:var(--muted);font-size:.8rem;line-height:1.5}
+.foot{font-size:.76rem;color:var(--muted);margin:20px 0 0}
+</style>
+</head>
+<body>
+<main class="wrap">
+  <h1>Control de pulso</h1>
+  <p class="sub">ESP32-C3 · activación momentánea</p>
+
+  <section class="panel">
+    <div class="status"><span id="dot" class="dot"></span><span id="status" role="status" aria-live="polite">Comprobando autorización…</span></div>
+
+    <form id="enroll" hidden>
+      <label for="token">Token de autorización</label>
+      <input id="token" name="token" type="password" autocomplete="one-time-code" required minlength="8">
+      <button class="enroll" type="submit">Activar este teléfono</button>
+    </form>
+
+    <button id="pulse" class="pulse" type="button" disabled>Enviar pulso</button>
+    <div id="msg" class="msg" role="status" aria-live="polite"></div>
+    <p class="note">Pulso fijo de 1 segundo. El LED interno y la salida se activan al mismo tiempo.</p>
+  </section>
+
+  <p class="foot">Este teléfono se autoriza una sola vez mediante un token de instalación.</p>
+</main>
+
+<script>
+const API_URL='https://api.hsda.pro';
+const COOLDOWN_MS=2000;
+const DB_NAME='pulso-device';
+const DB_VERSION=1;
+const KEY_STORE='keys';
+const $=id=>document.getElementById(id);
+let authorized=false;
+let busy=false;
+let cooldownTimer=null;
+
+function updatePulseButton(){
+  $('pulse').disabled=!authorized||busy;
+}
+
+function setStatus(message,state='offline'){
+  $('status').textContent=message;
+  $('dot').className='dot'+(state==='online'?' on':state==='error'?' error':'');
+  updatePulseButton();
+}
+
+function openDb(){
+  return new Promise((resolve,reject)=>{
+    const request=indexedDB.open(DB_NAME,DB_VERSION);
+    request.onupgradeneeded=()=>request.result.createObjectStore(KEY_STORE);
+    request.onsuccess=()=>resolve(request.result);
+    request.onerror=()=>reject(request.error);
+  });
+}
+
+async function savePrivateKey(privateKey){
+  const db=await openDb();
+  return new Promise((resolve,reject)=>{
+    const request=db.transaction(KEY_STORE,'readwrite').objectStore(KEY_STORE).put(privateKey,'privateKey');
+    request.onsuccess=()=>resolve();
+    request.onerror=()=>reject(request.error);
+  });
+}
+
+async function loadPrivateKey(){
+  const db=await openDb();
+  return new Promise((resolve,reject)=>{
+    const request=db.transaction(KEY_STORE,'readonly').objectStore(KEY_STORE).get('privateKey');
+    request.onsuccess=()=>resolve(request.result||null);
+    request.onerror=()=>reject(request.error);
+  });
+}
+
+function bytesToBase64Url(bytes){
+  let binary='';
+  for(const byte of bytes) binary+=String.fromCharCode(byte);
+  return btoa(binary).replace(/\+/g,'-').replace(/\//g,'_').replace(/=+$/,'');
+}
+
+function canonicalMessage(deviceId,timestamp,nonce){
+  return `${deviceId}.${timestamp}.${nonce}`;
+}
+
+async function loadIdentity(){
+  const deviceId=localStorage.getItem('pulsoDeviceId');
+  const privateKey=await loadPrivateKey();
+  return deviceId&&privateKey?{deviceId,privateKey}:null;
+}
+
+async function enroll(event){
+  event.preventDefault();
+  const token=$('token').value.trim();
+  if(!token)return;
+
+  $('enroll').querySelector('button').disabled=true;
+  setStatus('Registrando este teléfono…');
+  $('msg').textContent='';
+
+  try{
+    const pair=await crypto.subtle.generateKey({name:'ECDSA',namedCurve:'P-256'},true,['sign','verify']);
+    const publicKey=await crypto.subtle.exportKey('jwk',pair.publicKey);
+    const privateJwk=await crypto.subtle.exportKey('jwk',pair.privateKey);
+    const privateKey=await crypto.subtle.importKey('jwk',privateJwk,{name:'ECDSA',namedCurve:'P-256'},false,['sign']);
+    const response=await fetch(`${API_URL}/api/enroll`,{
+      method:'POST',
+      headers:{'Content-Type':'application/json'},
+      body:JSON.stringify({token,publicKey})
+    });
+    const result=await response.json();
+    if(!response.ok)throw new Error(result.error||'No se pudo activar el teléfono.');
+
+    await savePrivateKey(privateKey);
+    localStorage.setItem('pulsoDeviceId',result.deviceId);
+    $('token').value='';
+    $('enroll').hidden=true;
+    authorized=true;
+    setStatus('Listo para enviar','online');
+    $('msg').textContent='Teléfono autorizado.';
+  }catch(error){
+    setStatus('No se pudo autorizar','error');
+    $('msg').textContent=error.message;
+    $('enroll').querySelector('button').disabled=false;
+  }
+}
+
+async function sendPulse(){
+  if(!authorized||busy)return;
+  const identity=await loadIdentity();
+  if(!identity){
+    authorized=false;
+    $('enroll').hidden=false;
+    setStatus('Se requiere autorización','error');
+    return;
+  }
+
+  busy=true;
+  updatePulseButton();
+  $('msg').textContent='Enviando pulso…';
+  const timestamp=Date.now();
+  const nonce=crypto.randomUUID();
+  const message=canonicalMessage(identity.deviceId,timestamp,nonce);
+  const signature=await crypto.subtle.sign({name:'ECDSA',hash:'SHA-256'},identity.privateKey,new TextEncoder().encode(message));
+
+  try{
+    const response=await fetch(`${API_URL}/api/pulse`,{
+      method:'POST',
+      headers:{'Content-Type':'application/json'},
+      body:JSON.stringify({deviceId:identity.deviceId,timestamp,nonce,signature:bytesToBase64Url(new Uint8Array(signature))})
+    });
+    const result=await response.json();
+    if(!response.ok)throw new Error(result.error||'No se pudo enviar el pulso.');
+    $('msg').textContent='Pulso enviado. La placa activa el relay y el LED durante 1 segundo.';
+  }catch(error){
+    $('msg').textContent=error.message;
+  }finally{
+    clearTimeout(cooldownTimer);
+    cooldownTimer=setTimeout(()=>{busy=false;updatePulseButton();},COOLDOWN_MS);
+  }
+}
+
+$('enroll').addEventListener('submit',enroll);
+$('pulse').addEventListener('click',sendPulse);
+
+(async()=>{
+  try{
+    const identity=await loadIdentity();
+    authorized=Boolean(identity);
+    $('enroll').hidden=authorized;
+    setStatus(authorized?'Listo para enviar':'Ingresa el token de autorización',authorized?'online':'offline');
+  }catch(error){
+    setStatus('Navegador no compatible','error');
+    $('msg').textContent=error.message;
+  }
+})();
+</script>
+</body>
+</html>
