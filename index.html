@@ -4,55 +4,64 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <meta name="theme-color" content="#101827">
-<title>Control de pulso ESP32-C3</title>
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+<link rel="manifest" href="manifest.webmanifest">
+<link rel="apple-touch-icon" href="icons/icon-192.png">
+<title>Control de acceso</title>
 <style>
-:root{color-scheme:dark;--bg:#101827;--panel:#192437;--line:#2d3b52;--text:#edf3fb;--muted:#a9b6c9;--accent:#5de0b5;--pulse:#f2b84b;--danger:#ff8b8b}
+:root{color-scheme:dark;--bg:#101827;--panel:#192437;--line:#2d3b52;--text:#edf3fb;--muted:#a9b6c9;--blue:#42607d;--green:#39cf8a;--danger:#ff8b8b}
 *{box-sizing:border-box}
 body{margin:0;background:radial-gradient(ellipse at top,#1b2d45,var(--bg) 65%);font:16px system-ui,sans-serif;color:var(--text);min-height:100vh;display:grid;place-items:center;padding:24px}
 .wrap{width:min(100%,460px);text-align:center}
-h1{font-size:1.8rem;margin:0 0 8px}
-.sub{color:var(--muted);margin:0 0 28px}
+h1{font-size:1.9rem;margin:0 0 28px}
 .panel{background:rgba(25,36,55,.96);border:1px solid var(--line);border-radius:18px;padding:28px 22px;box-shadow:0 14px 45px #0003}
 .status{display:flex;justify-content:center;align-items:center;gap:9px;color:var(--muted);font-size:.95rem;min-height:24px}
 .dot{width:10px;height:10px;border-radius:50%;background:#78859a;flex:none}
-.dot.on{background:var(--accent);box-shadow:0 0 12px var(--accent)}
+.dot.on{background:var(--green);box-shadow:0 0 12px var(--green)}
 .dot.error{background:var(--danger);box-shadow:0 0 12px var(--danger)}
-.pulse{width:100%;min-height:92px;margin-top:28px;border:0;border-radius:14px;background:var(--pulse);color:#2b1d05;font:700 1.25rem system-ui;cursor:pointer}
-.pulse:disabled,.enroll:disabled{opacity:.45;cursor:not-allowed}
-.enroll{width:100%;min-height:52px;margin-top:14px;border:0;border-radius:12px;background:var(--accent);color:#10241f;font:700 1rem system-ui;cursor:pointer}
-.enroll[hidden]{display:none}
-label{display:block;margin:24px 0 8px;text-align:left;color:var(--muted);font-size:.9rem}
+.access-button{display:grid;place-items:center;width:min(72vw,250px);aspect-ratio:1;margin:30px auto 0;padding:24px;border:0;border-radius:50%;background:var(--blue);color:#fff;box-shadow:0 14px 32px #0004;cursor:pointer;transition:background .2s ease,transform .15s ease,box-shadow .2s ease}
+.access-button:hover:not(:disabled){transform:translateY(-2px);box-shadow:0 18px 38px #0005}
+.access-button:active:not(:disabled){transform:scale(.97)}
+.access-button.opening{background:var(--green);color:#10241f}
+.access-button:disabled{opacity:.5;cursor:not-allowed}
+.logo{display:block;width:68%;height:68%;object-fit:cover;border-radius:50%}
+.button-label{font-size:1rem;font-weight:700;line-height:1.2}
+.access-button .logo+.button-label{margin-top:-2px}
+.enroll-form{margin-top:28px}
+.enroll-form[hidden]{display:none}
+label{display:block;margin:0 0 8px;text-align:left;color:var(--muted);font-size:.9rem}
 input{width:100%;min-height:52px;border:1px solid var(--line);border-radius:12px;background:#101827;color:var(--text);padding:0 14px;font:1rem system-ui}
-.msg{min-height:2.8em;margin:18px 0 0;color:var(--muted);font-size:.9rem;line-height:1.45}
-.note{margin:24px 0 0;color:var(--muted);font-size:.8rem;line-height:1.5}
-.foot{font-size:.76rem;color:var(--muted);margin:20px 0 0}
+.enroll{width:100%;min-height:52px;margin-top:12px;border:0;border-radius:12px;background:var(--green);color:#10241f;font:700 1rem system-ui;cursor:pointer}
+.enroll:disabled{opacity:.45;cursor:not-allowed}
+.error{min-height:1.4em;margin:16px 0 0;color:var(--danger);font-size:.9rem}
 </style>
 </head>
 <body>
 <main class="wrap">
-  <h1>Control de pulso</h1>
-  <p class="sub">ESP32-C3 · activación momentánea</p>
+  <h1>Control de acceso</h1>
 
   <section class="panel">
     <div class="status"><span id="dot" class="dot"></span><span id="status" role="status" aria-live="polite">Comprobando autorización…</span></div>
 
-    <form id="enroll" hidden>
+    <form id="enroll" class="enroll-form" hidden>
       <label for="token">Token de autorización</label>
       <input id="token" name="token" type="password" autocomplete="one-time-code" required minlength="8">
       <button class="enroll" type="submit">Activar este teléfono</button>
     </form>
 
-    <button id="pulse" class="pulse" type="button" disabled>Enviar pulso</button>
-    <div id="msg" class="msg" role="status" aria-live="polite"></div>
-    <p class="note">Pulso fijo de 1 segundo. El LED interno y la salida se activan al mismo tiempo.</p>
+    <button id="pulse" class="access-button" type="button" disabled aria-label="Abrir acceso">
+      <img class="logo" src="logo.jpeg" alt="">
+      <span id="button-label" class="button-label">Abrir acceso</span>
+    </button>
+    <div id="error" class="error" role="alert" aria-live="polite"></div>
   </section>
-
-  <p class="foot">Este teléfono se autoriza una sola vez mediante un token de instalación.</p>
 </main>
 
 <script>
 const API_URL='https://api.hsda.pro';
 const COOLDOWN_MS=2000;
+const OPENING_MS=1200;
 const DB_NAME='pulso-device';
 const DB_VERSION=1;
 const KEY_STORE='keys';
@@ -60,6 +69,7 @@ const $=id=>document.getElementById(id);
 let authorized=false;
 let busy=false;
 let cooldownTimer=null;
+let openingTimer=null;
 
 function updatePulseButton(){
   $('pulse').disabled=!authorized||busy;
@@ -100,7 +110,7 @@ async function loadPrivateKey(){
 
 function bytesToBase64Url(bytes){
   let binary='';
-  for(const byte of bytes) binary+=String.fromCharCode(byte);
+  for(const byte of bytes)binary+=String.fromCharCode(byte);
   return btoa(binary).replace(/\+/g,'-').replace(/\//g,'_').replace(/=+$/,'');
 }
 
@@ -118,34 +128,27 @@ async function enroll(event){
   event.preventDefault();
   const token=$('token').value.trim();
   if(!token)return;
-
   $('enroll').querySelector('button').disabled=true;
+  $('error').textContent='';
   setStatus('Registrando este teléfono…');
-  $('msg').textContent='';
 
   try{
     const pair=await crypto.subtle.generateKey({name:'ECDSA',namedCurve:'P-256'},true,['sign','verify']);
     const publicKey=await crypto.subtle.exportKey('jwk',pair.publicKey);
     const privateJwk=await crypto.subtle.exportKey('jwk',pair.privateKey);
     const privateKey=await crypto.subtle.importKey('jwk',privateJwk,{name:'ECDSA',namedCurve:'P-256'},false,['sign']);
-    const response=await fetch(`${API_URL}/api/enroll`,{
-      method:'POST',
-      headers:{'Content-Type':'application/json'},
-      body:JSON.stringify({token,publicKey})
-    });
+    const response=await fetch(`${API_URL}/api/enroll`,{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({token,publicKey})});
     const result=await response.json();
-    if(!response.ok)throw new Error(result.error||'No se pudo activar el teléfono.');
-
+    if(!response.ok)throw new Error(result.error||'No se pudo autorizar');
     await savePrivateKey(privateKey);
     localStorage.setItem('pulsoDeviceId',result.deviceId);
     $('token').value='';
     $('enroll').hidden=true;
     authorized=true;
-    setStatus('Listo para enviar','online');
-    $('msg').textContent='Teléfono autorizado.';
+    setStatus('Listo para abrir','online');
   }catch(error){
     setStatus('No se pudo autorizar','error');
-    $('msg').textContent=error.message;
+    $('error').textContent=error.message;
     $('enroll').querySelector('button').disabled=false;
   }
 }
@@ -161,25 +164,33 @@ async function sendPulse(){
   }
 
   busy=true;
+  $('error').textContent='';
+  $('pulse').classList.add('opening');
+  $('button-label').textContent='Abriendo…';
+  $('pulse').setAttribute('aria-label','Abriendo acceso');
+  setStatus('Abriendo…','online');
   updatePulseButton();
-  $('msg').textContent='Enviando pulso…';
+
   const timestamp=Date.now();
   const nonce=crypto.randomUUID();
   const message=canonicalMessage(identity.deviceId,timestamp,nonce);
   const signature=await crypto.subtle.sign({name:'ECDSA',hash:'SHA-256'},identity.privateKey,new TextEncoder().encode(message));
 
   try{
-    const response=await fetch(`${API_URL}/api/pulse`,{
-      method:'POST',
-      headers:{'Content-Type':'application/json'},
-      body:JSON.stringify({deviceId:identity.deviceId,timestamp,nonce,signature:bytesToBase64Url(new Uint8Array(signature))})
-    });
+    const response=await fetch(`${API_URL}/api/pulse`,{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({deviceId:identity.deviceId,timestamp,nonce,signature:bytesToBase64Url(new Uint8Array(signature))})});
     const result=await response.json();
-    if(!response.ok)throw new Error(result.error||'No se pudo enviar el pulso.');
-    $('msg').textContent='Pulso enviado. La placa activa el relay y el LED durante 1 segundo.';
+    if(!response.ok)throw new Error(result.error||'No se pudo abrir el acceso');
   }catch(error){
-    $('msg').textContent=error.message;
+    $('error').textContent=error.message;
+    setStatus('No se pudo abrir','error');
   }finally{
+    clearTimeout(openingTimer);
+    openingTimer=setTimeout(()=>{
+      $('pulse').classList.remove('opening');
+      $('button-label').textContent='Abrir acceso';
+      $('pulse').setAttribute('aria-label','Abrir acceso');
+      if(!$('error').textContent)setStatus('Listo para abrir','online');
+    },OPENING_MS);
     clearTimeout(cooldownTimer);
     cooldownTimer=setTimeout(()=>{busy=false;updatePulseButton();},COOLDOWN_MS);
   }
@@ -193,12 +204,16 @@ $('pulse').addEventListener('click',sendPulse);
     const identity=await loadIdentity();
     authorized=Boolean(identity);
     $('enroll').hidden=authorized;
-    setStatus(authorized?'Listo para enviar':'Ingresa el token de autorización',authorized?'online':'offline');
+    setStatus(authorized?'Listo para abrir':'Ingresa el token de autorización',authorized?'online':'offline');
   }catch(error){
     setStatus('Navegador no compatible','error');
-    $('msg').textContent=error.message;
+    $('error').textContent=error.message;
   }
 })();
+
+if('serviceWorker' in navigator){
+  window.addEventListener('load',()=>navigator.serviceWorker.register('./sw.js').catch(()=>{}));
+}
 </script>
 </body>
 </html>
